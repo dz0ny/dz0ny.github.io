@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>strace | Janez Troha - Blog</title><link>/tags/strace/</link><atom:link href="/tags/strace/index.xml" rel="self" type="application/rss+xml"/><description>strace</description><generator>Source Themes Academic (https://sourcethemes.com/academic/)</generator><language>en-us</language><copyright>© 2017-2020</copyright><lastBuildDate>Wed, 08 Mar 2017 14:32:45 +0100</lastBuildDate><image><url>/images/icon_hu0b7a4cb9992c9ac0e91bd28ffd38dd00_9727_512x512_fill_lanczos_center_2.png</url><title>strace</title><link>/tags/strace/</link></image><item><title>Using strace to figure out what is crashing MySQL</title><link>/post/mysql_and_strace/</link><pubDate>Wed, 08 Mar 2017 14:32:45 +0100</pubDate><guid>/post/mysql_and_strace/</guid><description>&lt;p>So this all started when one of the production servers started to behave oddly. It would start up work for a while then crash with something like this:&lt;/p>
+&lt;pre>&lt;code>InnoDB: Tried to read 16384 bytes at offset 0. Was only able to read 0.
+InnoDB: Operating system error number 2 in a file operation.
+InnoDB: The error means the system cannot find the path specified.
+InnoDB: If you are installing InnoDB, remember that you must create
+InnoDB: directories yourself, InnoDB does not create them.
+InnoDB: Operation read to file /home/buildbot/buildbot/build/mariadb-10.1.21/storage/xtradb/os/os0file.cc and at line 3203
+InnoDB: File (unknown): 'read' returned OS error 71. Cannot continue operation
+This could be because you hit a bug. It is also possible that this binary
+or one of the libraries it was linked against is corrupt, improperly built,
+or misconfigured. This error can also be caused by malfunctioning hardware.
+&lt;/code>&lt;/pre>
+&lt;p>If I would only know what file crashed the MySQL, remember it reported &lt;code>InnoDB: File (unknown): 'read' returned OS error 71.&lt;/code>&lt;/p>
+&lt;p>So MySQL is easy to debug right :). First at least in Ubuntu MySQL is ran in wrapper shell script(mysqld_safe). And the script is far from modest one, it wants to be healer, crash detector, process limits changer, starting race protector&amp;hellip; a bunch of stuff that should be handled by the process manager.&lt;/p>
+&lt;p>So after I figure what are default command line parameters for running MySQL. I'll just run it with strace wrapped in nohup. Strace spitting out all system calls and nohup capturing them to file even after I logout. Naturally, I also added a little command to ping me on Slack when it crashes.&lt;/p>
+&lt;p>So what I ran was this fancy command:
+&lt;code>nohup strace /usr/sbin/mysqld --basedir=/usr --datadir=/var/lib/mysql --plugin-dir=/usr/lib/mysql/plugin --user=mysql; notify_slack&lt;/code>&lt;/p>
+&lt;p>Time for coffee&amp;hellip;&lt;/p>
+&lt;p>Well, this was fast I only just poured milk, 5 minutes later here I was present with this lovely output.&lt;/p>
+&lt;pre>&lt;code>stat(&amp;quot;./test_com/wp_posts_sent_to_bli.frm&amp;quot;, {st_mode=S_IFREG|0660, st_size=2275, ...}) = 0
+stat(&amp;quot;./test_com/wp_bn_whitelisted_user_agents_keywords.ibd&amp;quot;, {st_mode=S_IFREG|0660, st_size=0, ...}) = 0
+open(&amp;quot;./test_com/wp_bn_whitelisted_user_agents_keywords.isl&amp;quot;, O_RDWR) = -1 ENOENT (No such file or directory)
+open(&amp;quot;./test_com/wp_bn_whitelisted_user_agents_keywords.ibd&amp;quot;, O_RDWR) = 15
+fcntl(15, F_SETLK, {type=F_WRLCK, whence=SEEK_SET, start=0, len=0}) = 0
+pread(15, &amp;quot;&amp;quot;, 16384, 0) = 0
+write(2, &amp;quot;2017-03-08 12:32:19 140179095807&amp;quot;..., 1162017-03-08 12:32:19 140179095807936 [ERROR] InnoDB: Tried to read 16384 bytes at offset 0. Was only able to read 0.
+) = 116
+&lt;/code>&lt;/pre>
+&lt;p>Ok, so this .ibd file seems to be corrupt. Did I mention this mysqld_safe thingy, yes the apparent index file was being written when either process was killed or server was hard rebooted? So let's add one more check into myqld_safe &amp;hellip; just kidding :). Removing .ibd file was enough and running optimize on the table to recreate it.&lt;/p>
+&lt;p>Frankly, I'm surprised MySQL does not check this by default, it should be handled in software, not some external script. Now for sake of speediness, I could also have checked for the empty index files in MySQL data directory and this would be solved rather quickly. But you never know what else you can learn from looking bit deeper :)&lt;/p></description></item></channel></rss>
